@@ -1,0 +1,365 @@
+import "abla/compiler/parser"
+
+class MjmlAttribute(val name: string, val value: string)
+
+class Mjml(
+    val kind: int,
+    val tag: string,
+    val text: string,
+    val attributes: array<MjmlAttribute>,
+    val children: array<Mjml>
+)
+
+compile fun mjmlSyntaxCall(
+    name: string,
+    arguments: array<SyntaxExpression>
+): SyntaxExpression = syntaxCall(name, arguments)
+
+compile fun mjmlUnarySyntaxCall(
+    name: string,
+    value: SyntaxExpression
+): SyntaxExpression = mjmlSyntaxCall(name, [value])
+
+compile fun mjmlTagSupported(tag: string): bool =
+    tag == "mjml" || tag == "mj-head" || tag == "mj-preview" ||
+    tag == "mj-body" || tag == "mj-section" || tag == "mj-column" ||
+    tag == "mj-text" || tag == "mj-button" || tag == "mj-divider" ||
+    tag == "mj-spacer" || tag == "mj-image"
+
+compile fun mjmlAttributeSupported(name: string): bool =
+    name == "lang" || name == "background-color" || name == "color" ||
+    name == "font-family" || name == "font-size" || name == "font-weight" ||
+    name == "line-height" || name == "padding" || name == "padding-top" ||
+    name == "padding-right" || name == "padding-bottom" ||
+    name == "padding-left" || name == "align" || name == "vertical-align" ||
+    name == "width" || name == "height" || name == "border" ||
+    name == "border-radius" || name == "href" || name == "src" ||
+    name == "alt" || name == "title" || name == "inner-padding"
+
+compile fun mjmlTakeTag(cursor: ParserCursor): string {
+    var tag = ""
+    if (parserRawConsume(cursor, "mj-preview")) tag = "mj-preview"
+    else if (parserRawConsume(cursor, "mj-section")) tag = "mj-section"
+    else if (parserRawConsume(cursor, "mj-column")) tag = "mj-column"
+    else if (parserRawConsume(cursor, "mj-divider")) tag = "mj-divider"
+    else if (parserRawConsume(cursor, "mj-button")) tag = "mj-button"
+    else if (parserRawConsume(cursor, "mj-spacer")) tag = "mj-spacer"
+    else if (parserRawConsume(cursor, "mj-image")) tag = "mj-image"
+    else if (parserRawConsume(cursor, "mj-text")) tag = "mj-text"
+    else if (parserRawConsume(cursor, "mj-head")) tag = "mj-head"
+    else if (parserRawConsume(cursor, "mj-body")) tag = "mj-body"
+    else if (parserRawConsume(cursor, "mjml")) tag = "mjml"
+    else parserFail(cursor, "unsupported MJML component")
+    tag
+}
+
+compile fun mjmlTakeAttribute(cursor: ParserCursor): string {
+    var name = ""
+    if (parserRawConsume(cursor, "background-color")) name = "background-color"
+    else if (parserRawConsume(cursor, "vertical-align")) name = "vertical-align"
+    else if (parserRawConsume(cursor, "padding-bottom")) name = "padding-bottom"
+    else if (parserRawConsume(cursor, "padding-right")) name = "padding-right"
+    else if (parserRawConsume(cursor, "padding-left")) name = "padding-left"
+    else if (parserRawConsume(cursor, "padding-top")) name = "padding-top"
+    else if (parserRawConsume(cursor, "inner-padding")) name = "inner-padding"
+    else if (parserRawConsume(cursor, "border-radius")) name = "border-radius"
+    else if (parserRawConsume(cursor, "font-family")) name = "font-family"
+    else if (parserRawConsume(cursor, "font-weight")) name = "font-weight"
+    else if (parserRawConsume(cursor, "line-height")) name = "line-height"
+    else if (parserRawConsume(cursor, "font-size")) name = "font-size"
+    else if (parserRawConsume(cursor, "background")) name = "background"
+    else if (parserRawConsume(cursor, "padding")) name = "padding"
+    else if (parserRawConsume(cursor, "border")) name = "border"
+    else if (parserRawConsume(cursor, "height")) name = "height"
+    else if (parserRawConsume(cursor, "width")) name = "width"
+    else if (parserRawConsume(cursor, "color")) name = "color"
+    else if (parserRawConsume(cursor, "align")) name = "align"
+    else if (parserRawConsume(cursor, "title")) name = "title"
+    else if (parserRawConsume(cursor, "href")) name = "href"
+    else if (parserRawConsume(cursor, "src")) name = "src"
+    else if (parserRawConsume(cursor, "alt")) name = "alt"
+    else if (parserRawConsume(cursor, "lang")) name = "lang"
+    else parserFail(cursor, "unsupported MJML attribute")
+    name
+}
+
+compile fun mjmlParseAttribute(
+    cursor: ParserCursor,
+    name: string
+): SyntaxExpression {
+    parserRawSkipWhitespace(cursor)
+    parserRawExpect(cursor, "=")
+    parserRawSkipWhitespace(cursor)
+    val arguments: array<SyntaxExpression> = [syntaxString(name)]
+    if (parserRawConsume(cursor, "\"")) {
+        val value = parserRawTakeUntil(cursor, "\"")
+        parserRawExpect(cursor, "\"")
+        arguments.append(syntaxString(value))
+        mjmlSyntaxCall("mjmlAttribute", arguments)
+    } else if (parserRawConsume(cursor, "'")) {
+        val value = parserRawTakeUntil(cursor, "'")
+        parserRawExpect(cursor, "'")
+        arguments.append(syntaxString(value))
+        mjmlSyntaxCall("mjmlAttribute", arguments)
+    } else if (parserRawConsume(cursor, "{")) {
+        val value = parserParseAblaExpression(cursor)
+        parserRawExpect(cursor, "}")
+        arguments.append(value)
+        mjmlSyntaxCall("mjmlDynamicAttribute", arguments)
+    } else {
+        parserFail(cursor, "MJML attributes require quoted text or an Abla expression")
+        arguments.append(syntaxString(""))
+        mjmlSyntaxCall("mjmlAttribute", arguments)
+    }
+}
+
+compile fun mjmlParseElement(cursor: ParserCursor): SyntaxExpression {
+    parserRawSkipWhitespace(cursor)
+    parserRawExpect(cursor, "<")
+    val tag = mjmlTakeTag(cursor)
+    val attributes: array<SyntaxExpression> = []
+    var opened = true
+    var selfClosing = false
+    while (opened) {
+        parserRawSkipWhitespace(cursor)
+        if (parserRawConsume(cursor, "/>")) {
+            opened = false
+            selfClosing = true
+        } else if (parserRawConsume(cursor, ">")) {
+            opened = false
+        } else {
+            val name = mjmlTakeAttribute(cursor)
+            attributes.append(mjmlParseAttribute(cursor, name))
+        }
+    }
+
+    val children: array<SyntaxExpression> = []
+    var closed = selfClosing
+    while (!closed) {
+        if (parserRawEnd(cursor)) {
+            closed = true
+            parserFail(cursor, "unterminated MJML component")
+        } else if (parserRawAt(cursor, "</")) {
+            closed = true
+        } else if (parserRawAt(cursor, "<")) {
+            children.append(mjmlParseElement(cursor))
+        } else if (parserRawConsume(cursor, "{")) {
+            val value = parserParseAblaExpression(cursor)
+            parserRawExpect(cursor, "}")
+            children.append(mjmlUnarySyntaxCall("mjmlDynamic", value))
+        } else {
+            val value = parserRawTakeUntil(cursor, "<{")
+            if (value != "")
+                children.append(mjmlUnarySyntaxCall("mjmlText", syntaxString(value)))
+        }
+    }
+    if (!selfClosing) {
+        parserRawExpect(cursor, "</")
+        val closing = mjmlTakeTag(cursor)
+        if (closing != tag) parserFail(cursor, "closing MJML component does not match")
+        parserRawSkipWhitespace(cursor)
+        parserRawExpect(cursor, ">")
+    }
+    mjmlSyntaxCall(
+        "mjmlElement",
+        [syntaxString(tag), syntaxArray(attributes), syntaxArray(children)]
+    )
+}
+
+compile fun mjmlParse(cursor: ParserCursor): SyntaxExpression {
+    val expression = mjmlParseElement(cursor)
+    expression
+}
+
+#compilerRegisterSubparser("mjml", mjmlParse)
+
+fun mjmlAttribute(name: string, value: string): MjmlAttribute =
+    MjmlAttribute(name, value)
+
+fun mjmlDynamicAttribute(name: string, value: any): MjmlAttribute =
+    MjmlAttribute(name, if (name == "href" || name == "src") mjmlSafeUrl("$value") else "$value")
+
+fun mjmlElement(
+    tag: string,
+    attributes: array<MjmlAttribute>,
+    children: array<Mjml>
+): Mjml = Mjml(1, tag, "", attributes, children)
+
+fun mjmlText(value: string): Mjml = Mjml(2, "", value, [], [])
+
+fun mjmlDynamic(value: any): Mjml = Mjml(2, "", "$value", [], [])
+
+fun mjmlStartsWith(value: string, prefix: string): bool =
+    value.size >= prefix.size && value.slice(0, prefix.size) == prefix
+
+fun mjmlSafeUrl(value: string): string =
+    if (value.size <= 2048 && mjmlStartsWith(value, "https://") &&
+        !mjmlContainsControl(value)) value else ""
+
+fun mjmlContainsControl(value: string): bool {
+    var found = false
+    var index = 0
+    while (!found && index < value.size) {
+        found = value[index] < 32 || value[index] == 127
+        index = index + 1
+    }
+    found
+}
+
+fun mjmlEscape(value: string): string {
+    var escaped = ""
+    var index = 0
+    while (index < value.size) {
+        if (value[index] == 38) escaped = "$escaped&amp;"
+        else if (value[index] == 60) escaped = "$escaped&lt;"
+        else if (value[index] == 62) escaped = "$escaped&gt;"
+        else if (value[index] == 34) escaped = "$escaped&quot;"
+        else if (value[index] == 39) escaped = "$escaped&#39;"
+        else escaped = "$escaped${value.slice(index, index + 1)}"
+        index = index + 1
+    }
+    escaped
+}
+
+fun Mjml.attribute(name: string, fallback: string = ""): string {
+    var value = fallback
+    var index = 0
+    while (index < this.attributes.size) {
+        if (this.attributes[index].name == name) value = this.attributes[index].value
+        index = index + 1
+    }
+    value
+}
+
+fun Mjml.content(): string {
+    var result = ""
+    var index = 0
+    while (index < this.children.size) {
+        result = "$result${if (this.children[index].kind == 2) mjmlEscape(this.children[index].text) else this.children[index].renderNode()}"
+        index = index + 1
+    }
+    result
+}
+
+fun Mjml.style(names: array<string>, defaults: array<string>): string {
+    var style = ""
+    var index = 0
+    while (index < names.size && index < defaults.size) {
+        val value = this.attribute(names[index], defaults[index])
+        if (value != "") style = "$style${names[index]}:${mjmlEscape(value)};"
+        index = index + 1
+    }
+    style
+}
+
+fun Mjml.renderChildren(): string {
+    var result = ""
+    var index = 0
+    while (index < this.children.size) {
+        result = "$result${this.children[index].renderNode()}"
+        index = index + 1
+    }
+    result
+}
+
+fun Mjml.renderNode(): string {
+    if (this.kind == 2) return mjmlEscape(this.text)
+    if (this.tag == "mj-head" || this.tag == "mj-preview") return ""
+    if (this.tag == "mj-body") {
+        val background = mjmlEscape(this.attribute("background-color", "#f4f4f2"))
+        return "<div role=\"article\" aria-roledescription=\"email\" style=\"background:$background;margin:0;padding:24px 0\">${this.renderChildren()}</div>"
+    }
+    if (this.tag == "mj-section") {
+        val style = this.style(
+            ["background-color", "padding", "border", "border-radius"],
+            ["#ffffff", "0", "", "0"]
+        )
+        return "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tr><td align=\"center\"><table role=\"presentation\" class=\"mj-section\" width=\"600\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"width:100%;max-width:600px;$style\"><tr>${this.renderChildren()}</tr></table></td></tr></table>"
+    }
+    if (this.tag == "mj-column") {
+        val style = this.style(
+            ["vertical-align", "width", "padding"],
+            ["top", "", "0"]
+        )
+        return "<td class=\"mj-column\" style=\"$style\">${this.renderChildren()}</td>"
+    }
+    if (this.tag == "mj-text") {
+        val align = mjmlEscape(this.attribute("align", "left"))
+        val style = this.style(
+            ["color", "font-family", "font-size", "font-weight", "line-height", "padding"],
+            ["#242422", "Arial, sans-serif", "16px", "400", "1.6", "20px 28px"]
+        )
+        return "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tr><td align=\"$align\" style=\"$style\"><div>${this.content()}</div></td></tr></table>"
+    }
+    if (this.tag == "mj-button") {
+        val align = mjmlEscape(this.attribute("align", "left"))
+        val background = mjmlEscape(this.attribute("background-color", "#111111"))
+        val color = mjmlEscape(this.attribute("color", "#ffffff"))
+        val padding = mjmlEscape(this.attribute("padding", "8px 28px 24px"))
+        val inner = mjmlEscape(this.attribute("inner-padding", "12px 20px"))
+        val radius = mjmlEscape(this.attribute("border-radius", "2px"))
+        val href = mjmlEscape(mjmlSafeUrl(this.attribute("href")))
+        return "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tr><td align=\"$align\" style=\"padding:$padding\"><table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tr><td bgcolor=\"$background\" style=\"background:$background;border-radius:$radius\"><a href=\"$href\" style=\"display:inline-block;padding:$inner;color:$color;font:600 15px Arial,sans-serif;text-decoration:none\">${this.content()}</a></td></tr></table></td></tr></table>"
+    }
+    if (this.tag == "mj-divider") {
+        val border = mjmlEscape(this.attribute("border", "1px solid #ddddda"))
+        val padding = mjmlEscape(this.attribute("padding", "0 28px"))
+        return "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tr><td style=\"padding:$padding\"><div style=\"border-top:$border;font-size:1px;line-height:1px\">&nbsp;</div></td></tr></table>"
+    }
+    if (this.tag == "mj-spacer") {
+        val height = mjmlEscape(this.attribute("height", "20px"))
+        return "<div style=\"height:$height;line-height:$height\">&nbsp;</div>"
+    }
+    if (this.tag == "mj-image") {
+        val source = mjmlEscape(mjmlSafeUrl(this.attribute("src")))
+        val alternative = mjmlEscape(this.attribute("alt"))
+        val width = mjmlEscape(this.attribute("width", "120px"))
+        val padding = mjmlEscape(this.attribute("padding", "20px 28px"))
+        return "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tr><td style=\"padding:$padding\"><img src=\"$source\" alt=\"$alternative\" width=\"$width\" style=\"border:0;display:block;height:auto;max-width:100%\"></td></tr></table>"
+    }
+    this.renderChildren()
+}
+
+fun Mjml.preview(): string {
+    var value = ""
+    if (this.tag == "mj-preview") value = this.plainContent()
+    var index = 0
+    while (value == "" && index < this.children.size) {
+        value = this.children[index].preview()
+        index = index + 1
+    }
+    value
+}
+
+fun Mjml.plainContent(): string {
+    if (this.kind == 2) return this.text
+    var result = ""
+    var index = 0
+    while (index < this.children.size) {
+        result = "$result${this.children[index].plainContent()}"
+        index = index + 1
+    }
+    result
+}
+
+fun Mjml.plainText(): string {
+    var result = ""
+    if (this.kind == 2) return this.text
+    if (this.tag == "mj-text" || this.tag == "mj-button")
+        result = "${this.plainContent()}${if (this.tag == "mj-button" && this.attribute("href") != "") "\n${this.attribute("href")}" else ""}\n\n"
+    else {
+        var index = 0
+        while (index < this.children.size) {
+            result = "$result${this.children[index].plainText()}"
+            index = index + 1
+        }
+    }
+    result
+}
+
+fun Mjml.render(): string {
+    val language = mjmlEscape(this.attribute("lang", "en"))
+    val preview = mjmlEscape(this.preview())
+    val body = this.renderNode()
+    "<!doctype html><html lang=\"$language\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"x-apple-disable-message-reformatting\"><title>$preview</title><style>body{margin:0!important;padding:0!important;background:#f4f4f2}table{border-collapse:collapse}@media(max-width:620px){.mj-section{width:100%!important}.mj-column{display:block!important;width:100%!important}}</style><!--[if mso]><style>.mj-section{width:600px!important}</style><![endif]--></head><body>$body</body></html>"
+}

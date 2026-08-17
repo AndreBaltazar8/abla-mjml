@@ -1,0 +1,42 @@
+import "../src/mjml.ab"
+
+fun template(name: string, url: string): Mjml = $mjml
+<mjml lang="en">
+  <mj-head><mj-preview>Confirm your account</mj-preview></mj-head>
+  <mj-body background-color="#f4f4f2">
+    <mj-section border-radius="4px">
+      <mj-column>
+        <mj-text font-size="24px">Welcome, {name}</mj-text>
+        <mj-button href={url}>Confirm email</mj-button>
+        <mj-divider />
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>
+
+fun frozenTemplate(): Mjml = #$mjml
+<mjml><mj-body><mj-section><mj-column><mj-text>Frozen template</mj-text></mj-column></mj-section></mj-body></mjml>
+
+fun has(value: string, expected: string): bool {
+    var found = false
+    var index = 0
+    while (!found && index + expected.size <= value.size) {
+        if (value.slice(index, index + expected.size) == expected) found = true
+        index = index + 1
+    }
+    found
+}
+
+fun main: int {
+    val rendered = template("Ada <Admin>", "https://example.com/verify?a=1&b=2").render()
+    val plain = template("Ada", "https://example.com/verify").plainText()
+    if (!has(rendered, "<!doctype html>")) 1
+    else if (!has(rendered, "role=\"presentation\"")) 2
+    else if (!has(rendered, "@media(max-width:620px)")) 3
+    else if (!has(rendered, "Ada &lt;Admin&gt;")) 4
+    else if (!has(rendered, "https://example.com/verify?a=1&amp;b=2")) 5
+    else if (!has(plain, "Confirm email\nhttps://example.com/verify")) 6
+    else if (mjmlSafeUrl("javascript:alert(1)") != "") 7
+    else if (!has(frozenTemplate().render(), "Frozen template")) 8
+    else 0
+}
