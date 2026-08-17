@@ -149,7 +149,7 @@ compile fun mjmlParseElement(cursor: ParserCursor): SyntaxExpression {
             children.append(mjmlUnarySyntaxCall("mjmlDynamic", value))
         } else {
             val value = parserRawTakeUntil(cursor, "<{")
-            if (value != "")
+            if (value != "" && !mjmlWhitespaceOnly(value))
                 children.append(mjmlUnarySyntaxCall("mjmlText", syntaxString(value)))
         }
     }
@@ -164,6 +164,17 @@ compile fun mjmlParseElement(cursor: ParserCursor): SyntaxExpression {
         "mjmlElement",
         [syntaxString(tag), syntaxArray(attributes), syntaxArray(children)]
     )
+}
+
+compile fun mjmlWhitespaceOnly(value: string): bool {
+    var whitespace = true
+    var index = 0
+    while (whitespace && index < value.size) {
+        val character = value[index]
+        whitespace = character == 9 || character == 10 || character == 13 || character == 32
+        index = index + 1
+    }
+    whitespace
 }
 
 compile fun mjmlParse(cursor: ParserCursor): SyntaxExpression {
